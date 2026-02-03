@@ -1,0 +1,73 @@
+events {
+    worker_connections 1024;
+}
+
+http {
+    resolver 127.0.0.11 valid=30s;
+
+    # Map for WebSocket connections management
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+
+    # n8n Server (Port 5678)
+    server {
+        listen 443 ssl;
+        server_name ${NGINX_PUBLIC_HOST};
+
+        ssl_certificate     /etc/nginx/certs/n8n.crt;
+        ssl_certificate_key /etc/nginx/certs/n8n.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
+
+        location / {
+            set $upstream_n8n n8n:5678;
+            proxy_pass http://$upstream_n8n;
+            proxy_http_version 1.1;
+
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header Origin $scheme://$host;
+
+            # WebSockets support (Essential for n8n)
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+        }
+    }
+
+    # PgAdmin Server (Port 80)
+    server {
+        listen 8443 ssl;
+        server_name ${NGINX_PUBLIC_HOST};
+
+        ssl_certificate     /etc/nginx/certs/n8n.crt;
+        ssl_certificate_key /etc/nginx/certs/n8n.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
+
+        location / {
+            set $upstream_pgadmin pgadmin:80;
+            proxy_pass http://$upstream_pgadmin;
+            proxy_http_version 1.1;
+
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+
+            proxy_cookie_path / "/; HTTPOnly; Secure; SameSite=None";
+            proxy_redirect off;
+
+            # Timeouts para PgAdmin
+            proxy_connect_timeout 600;
+            proxy_send_timeout 600;
+            proxy_read_timeout 600;
+            send_timeout 600;
+        }
+    }
+}

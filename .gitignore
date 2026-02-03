@@ -1,0 +1,8 @@
+# n8n internal files
+data/
+
+# Logs
+n8n-backup.log
+
+# Secrets
+.env

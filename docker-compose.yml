@@ -9,8 +9,6 @@ services:
       POSTGRES_DB: ${DB_POSTGRESDB_DATABASE}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
-    networks:
-      - db_network
 
   n8n:
     image: n8nio/n8n:latest
@@ -21,7 +19,6 @@ services:
     volumes:
       - ./data/n8n:/home/node/.n8n
     environment:
-      # --- DB ---
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
@@ -29,57 +26,37 @@ services:
       - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
       - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
 
-      # --- Credentials encryption key ---
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-
-      # --- Public URLs (for webhooks / right linking) ---
-      - N8N_HOST=0.0.0.0
-      - N8N_PORT=5678
       - N8N_SECURE_COOKIE=true
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://${PUBLIC_HOST}:35678/
-      - N8N_EDITOR_BASE_URL=https://${PUBLIC_HOST}:35678/
-    networks:
-      - db_network
+      - N8N_EDITOR_BASE_URL=https://${PUBLIC_HOST}/
+      - WEBHOOK_URL=https://${PUBLIC_HOST}/
 
   nginx:
-    image: nginx:alpine
+    image: 'jc21/nginx-proxy-manager:latest'
     container_name: nginx_proxy
     restart: unless-stopped
     ports:
-      - "35678:443" # n8n port
-      - "35679:8443" # pgadmin port
+      - '80:80'
+      - '443:443'
+      - '81:81'   # Admin panel
     volumes:
-      - ./nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
-      - /home/malkomich/.n8n/certs:/etc/nginx/certs:ro
-    environment:
-      - NGINX_PUBLIC_HOST=${PUBLIC_HOST}
-      - NGINX_ENVSUBST_TEMPLATE_DIR=/etc/nginx/templates
-      - NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx
-    networks:
-      - db_network
+      - ./data/npm/data:/data
+      - ./data/npm/letsencrypt:/etc/letsencrypt
     depends_on:
       - n8n
-      - pgadmin
 
   pgadmin:
     image: dpage/pgadmin4
     container_name: pgadmin
     restart: unless-stopped
+    ports:
+      - "8080:80"
     environment:
       PGADMIN_DEFAULT_EMAIL: ${DB_PGADMIN_USER}
       PGADMIN_DEFAULT_PASSWORD: ${DB_PGADMIN_PASSWORD}
       PGADMIN_CONFIG_SERVER_MODE: 'True'
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
-      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: 'False'
-      PGADMIN_CONFIG_CONSOLE_LOG_LEVEL: 10
     volumes:
       - ./data/pgadmin:/var/lib/pgadmin
-    networks:
-      - db_network
     depends_on:
       - postgres
-
-networks:
-  db_network:
-    driver: bridge

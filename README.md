@@ -1,88 +1,33 @@
-# n8n Workflow Automation Server (Self-Hosted, HTTPS, IP-Based)
+# n8n Workflow Automation Server (Self-Hosted, HTTPS)
 
-This repository provides a **clean, reproducible, error-free setup** to run **n8n** 24/7 using **Docker Compose**, **PostgreSQL**, **Nginx (HTTPS)** and **Google Drive backups via rclone**, exposed **publicly via IP** (no domain required).
+This repository provides a **clean, production-ready setup** for **n8n** using **Docker Compose**, **PostgreSQL**, and **Nginx Proxy Manager (NPM)**. It includes **Google Drive backups via rclone**.
 
-The setup is designed for **UNIX servers** (Debian / Ubuntu / Raspberry Pi OS) and **macOS / UNIX clients**.
+The setup is designed for **UNIX servers** (Debian / Ubuntu / Raspberry Pi OS).
 
 ---
 
 ## 1. System Requirements
 
-- **Privileges:** sudo access
-- **Network:**
-  - Port `35678/TCP` open on router (WAN → LAN)
-  - No CGNAT (must have a real public IPv4)
-- **Disk:** ≥ 5 GB free
-- **Time:** Correct system clock (NTP enabled)
+- **Privileges:** sudo access.
+- **Network & Port Forwarding:** You must configure your router's **Port Forwarding** (WAN → LAN) to point to your server's local IP for the following ports:
+  - `80/TCP`: HTTP (Mandatory for SSL challenges).
+  - `443/TCP`: HTTPS (Public access to services).
+  - `81/TCP`: NPM Admin Panel (Optional, for remote management).
+- **Software:** Docker Engine and Docker Compose plugin installed.
 
 ---
 
-## 2. Docker & Docker Compose Installation (Server)
+## 1. Environment Configuration (.env)
 
-Install Docker Engine and Compose plugin:
-
-```bash
-sudo apt update
-sudo apt install -y ca-certificates curl gnupg
-
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-| sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-```
-
-Allow Docker without sudo:
-
-```bash
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
----
-
-## 3. Environment Configuration (.env)
-
-Create `.env` in the project root, with the keys defined in `.env.template`, and the right values for each secret.
+1. Create `.env` from `.env.template`.
+2. Configure with new credentials and secure keys.
+3. Set `PUBLIC_HOST=subdomain.yourdomain.com`.
 
 IMPORTANT:
 - **Do NOT use the `$` character** in passwords or keys.
 - Values are injected directly into Docker.
 
----
-
-## 4. HTTPS Certificates (Self-Signed, IP-Based)
-
-Certificates are stored **outside the project** for security.
-
-Create certificates directory:
-```bash
-mkdir -p ~/certs
-```
-
-Generate certificate for your public IP:
-```bash
-openssl req -x509 -nodes -days 730 -newkey rsa:2048 \
-  -keyout ~/certs/n8n.key \
-  -out ~/certs/n8n.crt \
-  -subj "/CN=81.32.186.246"
-```
-
-Files created:
-- `~/certs/n8n.key`
-- `~/certs/n8n.crt`
-
----
-
-## 5. Permissions (Mandatory)
-
-Fix volume ownership before first start:
-
+Fix volume ownership:
 ```bash
 sudo mkdir -p ./data/n8n ./data/postgres
 sudo chown -R 1000:1000 ./data/n8n
@@ -91,39 +36,7 @@ sudo chown -R 999:999 ./data/postgres
 
 ---
 
-## 6. (Optional) Firewall Configuration (UFW)
-
-If UFW is enabled, explicitly allow the required ports.
-
-Install and enable UFW (if not already enabled):
-```bash
-sudo apt install -y ufw
-sudo ufw enable
-```
-
-Allow SSH (recommended before enabling):
-```bash
-sudo ufw allow ssh
-```
-
-Allow HTTPS entry point:
-```bash
-sudo ufw allow 35678/tcp
-```
-
-Allow local PostgreSQL (Docker internal use):
-```bash
-sudo ufw allow from 172.16.0.0/12 to any port 5432
-```
-
-Verify rules:
-```bash
-sudo ufw status
-```
-
----
-
-## 7. Start the Server
+## 1. Start the Server
 
 ```bash
 docker compose down
@@ -134,64 +47,63 @@ Verify:
 ```bash
 docker compose ps
 docker compose logs -f n8n
-docker compose logs -f nginx
-```
-
-Local test (server):
-```bash
-curl -kI https://127.0.0.1:35678
+docker compose logs -f nginx_proxy
 ```
 
 ---
 
-## 8. Router Configuration
+## 1. SSL & Proxy Configuration (NPM)
 
-Create **one** port forwarding rule:
-
-- **WAN Port:** 35678
-- **LAN Port:** 35678
-- **Protocol:** TCP
-- **Destination IP:** n8n server local IP (e.g. `192.168.1.39`)
-
----
-
-## 9. Access
-
-- **LAN:** https://192.168.1.39:35678
-- **Public:** https://81.32.186.246:35678
-
-Browser will show a **certificate warning** (expected). Accept the exception.
+1. Access the Admin Panel: `http://<SERVER_LOCAL_IP>:81`
+2. **Add Proxy Host**:
+   - **Domain Names:** `subdomain.yourdomain.com`
+   - **Scheme:** `http`
+   - **Forward Hostname:** `n8n` (internal docker service name)
+   - **Forward Port:** `5678`
+   - **Websockets Support:** Enabled.
+3. **SSL Tab**:
+   - Select **Request a new SSL Certificate**.
+   - Enable **Force SSL** and **HTTP/2 Support**.
+   - *Note:* Ensure your **Port Forwarding for port 80** is active, otherwise the certificate request will fail.
 
 ---
 
-## 10. Google Drive Backups with rclone
+## 1. Access Points
 
-Install rclone:
+- **n8n (Public):** `https://subdomain.yourdomain.com`
+- **n8n (Local):** `http://<SERVER_LOCAL_IP>:5678`
+- **pgAdmin (Local):** `http://<SERVER_LOCAL_IP>:8080`
+- **NPM Admin Panel:** `http://<SERVER_LOCAL_IP>:81`
+
+---
+
+## 1. Google Drive Backups (rclone)
+
+### Installation
 ```bash
 sudo apt install -y rclone
 ```
 
-Configure Google Drive remote:
+### ConfigureGoogle Drive remote:
 ```bash
 rclone config
 ```
 
 Follow **exactly** these steps:
-
-1. `n` → New remote  
-2. Name: `gdrive`  
-3. Storage: `Google Drive`  
-4. Client ID: **leave empty**  
-5. Client Secret: **leave empty**  
-6. Scope: `1` (Full access)  
-7. Root folder ID: **leave empty**  
-8. Service account: **leave empty**  
-9. Advanced config: `n`  
-10. Auto config: `n`  
-11. Open the provided URL **on your local machine (Mac or UNIX)**  
-12. Authorize Google Drive access  
-13. Paste the verification code back into the server terminal  
-14. Shared Drive: `n`  
+1. `n` → New remote
+2. Name: `gdrive`
+3. Storage: `Google Drive`
+4. Client ID: **leave empty**
+5. Client Secret: **leave empty**
+6. Scope: `1` (Full access)
+7. Root folder ID: **leave empty**
+8. Service account: **leave empty**
+9. Advanced config: `n`
+10. Auto config: `n`
+11. Open the provided URL **on your local machine (Mac or UNIX)**
+12. Authorize Google Drive access
+13. Paste the verification code back into the server terminal
+14. Shared Drive: `n`
 15. Confirm configuration: `y`
 
 Official reference:
@@ -203,20 +115,50 @@ rclone lsd gdrive:
 rclone mkdir gdrive:n8n-backups
 ```
 
----
-
-## 11. Recommended Backup Strategy
-
-- PostgreSQL dump (daily)
-- `data/n8n` archive
-- Upload via rclone to Google Drive
-- Keep local retention ≤ 14 days
+### Automated Backup Strategy (Cron)
+1. Create the script `n8n-backup.sh` (included in this repository)
+1. Schedule daily at 3 AM: `crontab -e`
+"""bash
+0 3 * * * /bin/bash ~/backup.sh
+"""
 
 ---
 
-## 12. Notes
+## 1. Infrastructure Setup (DDNS)
 
-- HTTPS is handled **only by Nginx**
-- n8n runs internally over HTTP
-- No domain required
-- No interactive setup required after this
+To keep your domain pointing to a dynamic IP, install a DDNS updater:
+```bash
+go install github.com/qdm12/ddns-updater/cmd/ddns-updater@latest
+mkdir -p ~/ddns/data && mv ~/go/bin/ddns-updater ~/ddns/
+```
+
+Create `~/ddns/data/config.json` with your provider's specific settings (refer to [ddns-updater docs](https://github.com/qdm12/ddns-updater)):
+
+### Resilient Background Service
+Create the service: `sudo nano /etc/systemd/system/ddns-updater.service`
+```ini
+[Unit]
+Description=DDNS Updater
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=<your_user>
+WorkingDirectory=/home/<your_user>/ddns
+ExecStart=/home/<your_user>/ddns/ddns-updater -datadir ./data
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+Enable it: `sudo systemctl enable --now ddns-updater`
+
+---
+
+## 1. Notes
+
+- **PostgreSQL** dump (daily)
+- **NPM** managing all SSL renewals automatically.
+- Backups uploaded via **rclone** to Google Drive
+- Local backup retention ≤ 14 days

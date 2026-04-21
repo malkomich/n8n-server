@@ -9,6 +9,8 @@ services:
       POSTGRES_DB: ${DB_POSTGRESDB_DATABASE}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - db_network
 
   n8n:
     image: n8nio/n8n:latest
@@ -18,6 +20,8 @@ services:
       - postgres
     volumes:
       - ./data/n8n:/home/node/.n8n
+    ports:
+      - "5678:5678"
     environment:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
@@ -25,17 +29,30 @@ services:
       - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
       - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
       - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
-
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - N8N_SECURE_COOKIE=true
-      - N8N_PROTOCOL=https
-      - N8N_EDITOR_BASE_URL=https://${PUBLIC_HOST}/
-      - WEBHOOK_URL=https://${PUBLIC_HOST}/
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://${PUBLIC_HOST}/
+      - N8N_EDITOR_BASE_URL=http://${PUBLIC_HOST}/
+    networks:
+      - db_network
 
   nginx:
     image: 'jc21/nginx-proxy-manager:latest'
     container_name: nginx_proxy
     restart: unless-stopped
+    command: >
+      sh -ec '
+        cert_dir=/etc/letsencrypt/live/npm-4;
+        if [ ! -s "$$cert_dir/fullchain.pem" ] || [ ! -s "$$cert_dir/privkey.pem" ]; then
+          mkdir -p "$$cert_dir";
+          openssl req -x509 -nodes -newkey rsa:2048 -days 3650
+            -subj "/CN=localhost"
+            -keyout "$$cert_dir/privkey.pem"
+            -out "$$cert_dir/fullchain.pem";
+        fi;
+        exec /init
+      '
     ports:
       - '80:80'
       - '443:443'
@@ -43,8 +60,11 @@ services:
     volumes:
       - ./data/npm/data:/data
       - ./data/npm/letsencrypt:/etc/letsencrypt
+    networks:
+      - db_network
     depends_on:
       - n8n
+      - pgadmin
 
   pgadmin:
     image: dpage/pgadmin4
@@ -53,10 +73,19 @@ services:
     ports:
       - "8080:80"
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${DB_PGADMIN_USER}
+      PGADMIN_DEFAULT_EMAIL: ${DB_PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${DB_PGADMIN_PASSWORD}
-      PGADMIN_CONFIG_SERVER_MODE: 'True'
+      PGADMIN_CUSTOM_CONFIG_DISTRO_FILE: /pgadmin4/config_distro.py
+      PGADMIN_LISTEN_ADDRESS: 0.0.0.0
+      TIMEOUT: ${PGADMIN_TIMEOUT:-180}
     volumes:
       - ./data/pgadmin:/var/lib/pgadmin
+      - ./config/pgadmin/config_distro.py:/pgadmin4/config_distro.py:ro
+    networks:
+      - db_network
     depends_on:
       - postgres
+
+networks:
+  db_network:
+    driver: bridge

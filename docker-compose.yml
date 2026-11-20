@@ -3,6 +3,7 @@ services:
     image: postgres:15
     container_name: postgres_db
     restart: unless-stopped
+    mem_limit: 256m
     environment:
       POSTGRES_USER: ${DB_POSTGRESDB_USER}
       POSTGRES_PASSWORD: ${DB_POSTGRESDB_PASSWORD}
